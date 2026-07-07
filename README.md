@@ -132,14 +132,24 @@ Sign_Language_Detector_Streamlit_app/
 
 1. Push this project to a GitHub repository.
 2. Go to [share.streamlit.io](https://share.streamlit.io) and connect the repo.
-3. Set **`app.py`** as the entry point and deploy.
+3. In **Advanced settings**, set **Python version = 3.11** (see note below).
+4. Set **`app.py`** as the entry point and deploy.
 
 The repo already includes everything the deploy needs:
 
 - **`requirements.txt`** — `streamlit-webrtc` + `av` for browser video, and
   `opencv-python-headless` (the GUI-free OpenCV build required on servers).
-- **`packages.txt`** — the system libraries (`libgl1`, `libglib2.0-0`) MediaPipe
-  needs on Streamlit Cloud's Debian image.
+- **`packages.txt`** — the system library (`libgl1`) MediaPipe needs on Streamlit
+  Cloud's Debian image.
+
+> **⚠️ Python version matters — use 3.11.** `scikit-learn` is pinned to `1.2.0`
+> to match the model pickle, and 1.2.0 only publishes wheels up to Python 3.11.
+> On Python 3.12+ (Streamlit Cloud may default to a much newer version) pip has
+> no wheel and tries to build scikit-learn from source, which fails with
+> `ModuleNotFoundError: No module named 'distutils'` (distutils was removed from
+> the standard library in Python 3.12). Selecting **Python 3.11** makes every
+> pinned package install from a prebuilt wheel and avoids the source build
+> entirely.
 
 > **Webcam note:** The camera is captured from the **visitor's browser** over
 > WebRTC, so it works on a remote host with no server-side camera. A public
