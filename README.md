@@ -141,9 +141,13 @@ The repo already includes everything the deploy needs:
   `opencv-contrib-python-headless` (the GUI-free OpenCV build). MediaPipe would
   otherwise pull the non-headless `opencv-contrib-python`, whose `cv2` links
   `libGL.so.1` / `libgthread-2.0.so.0`; the headless build needs no system libs.
-- **`packages.txt`** — `libgl1` only. (`libglib2.0-0` is **uninstallable** on
-  Streamlit Cloud's current base image, which is why the headless OpenCV above is
-  used to avoid needing it.)
+- **`packages.txt`** — `libgl1` + `libglib2.0-0t64`. MediaPipe pulls in the
+  non-headless `opencv-contrib-python`, whose `cv2` can win the on-disk race and
+  then needs `libGL.so.1` (from `libgl1`) and `libgthread-2.0.so.0` (from glib).
+  On Streamlit Cloud's **Debian trixie** image, glib was renamed by the 64-bit
+  `time_t` transition, so the package is **`libglib2.0-0t64`**, not the old
+  `libglib2.0-0` (that stale name resolves to the incompatible bullseye build
+  and fails with a `libffi7`/`libpcre3` conflict).
 
 > **⚠️ Python version matters — use 3.11.** `scikit-learn` is pinned to `1.2.0`
 > to match the model pickle, and 1.2.0 only publishes wheels up to Python 3.11.
