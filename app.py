@@ -23,7 +23,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from typing import Optional, Set, Tuple
+from typing import Dict, Optional, Tuple
 
 import av
 import cv2
@@ -103,27 +103,44 @@ RTC_CONFIGURATION = RTCConfiguration(
 # start (video_processor_factory) and end (on_video_ended) on different threads.
 # Lower this to 2 if playback still stutters on the free tier.
 MAX_CONCURRENT_STREAMS = 3
+# A slot is kept alive by a heartbeat the client sends on the fragment timer
+# while streaming. If a browser tab is closed abruptly no "stop" event fires, so
+# instead of relying on one we expire any slot whose last heartbeat is older than
+# this window -- a closed tab reclaims its slot automatically. Kept comfortably
+# above the ~0.15s heartbeat so background-tab timer throttling can't evict a
+# still-live stream.
+STREAM_STALE_SECONDS = 15.0
 _stream_lock = threading.Lock()
-_active_streams: Set[str] = set()  # session ids with a live stream
+_active_streams: Dict[str, float] = {}  # session id -> last heartbeat (epoch secs)
 
 
-def _register_stream(session_id: str) -> None:
-    """Mark this session's stream as active (called when a stream starts)."""
+def _reap_stale_locked(now: float) -> None:
+    """Drop slots with no recent heartbeat. Caller must hold ``_stream_lock``."""
+    for sid in [s for s, ts in _active_streams.items() if now - ts > STREAM_STALE_SECONDS]:
+        del _active_streams[sid]
+
+
+def _heartbeat_stream(session_id: str) -> None:
+    """Mark this session's stream alive now (also claims the slot on first call)."""
+    now = time.time()
     with _stream_lock:
-        _active_streams.add(session_id)
+        _reap_stale_locked(now)
+        _active_streams[session_id] = now
 
 
 def _release_stream(session_id: str) -> None:
-    """Free this session's slot (called when its stream ends). Idempotent."""
+    """Free this session's slot immediately (e.g. on a clean stop). Idempotent."""
     with _stream_lock:
-        _active_streams.discard(session_id)
+        _active_streams.pop(session_id, None)
 
 
 def _can_stream(session_id: str) -> bool:
     """Whether this session may stream now: it already holds a slot, or one is
-    free. A session occupies at most one slot (the set is keyed by session id),
-    so a single browser tab can never take more than one."""
+    free after reaping stale ones. A session holds at most one slot (keyed by
+    session id), so a single browser tab can never take more than one."""
+    now = time.time()
     with _stream_lock:
+        _reap_stale_locked(now)
         return session_id in _active_streams or len(_active_streams) < MAX_CONCURRENT_STREAMS
 
 
@@ -348,10 +365,10 @@ def _make_processor(
     """Factory for the WebRTC video processor.
 
     Called by streamlit-webrtc when a stream starts, so this is the natural place
-    to claim the session's concurrency slot. The matching release happens in the
-    stream's ``on_video_ended`` callback.
+    to claim the session's concurrency slot. The slot is then kept alive by the
+    heartbeat in render_output and expires on its own if the client disappears.
     """
-    _register_stream(session_id)
+    _heartbeat_stream(session_id)
     return SignLanguageProcessor(classifier)
 
 
@@ -415,7 +432,7 @@ def render_sidebar() -> Tuple[int, float, float]:
 
 
 @st.fragment(run_every=0.15)
-def render_output(ctx) -> None:
+def render_output(ctx, session_id: str) -> None:
     """Poll the processor for the latest prediction/sentence and render them.
 
     ``run_every`` re-executes *only this fragment* on a timer, so the live text
@@ -432,6 +449,9 @@ def render_output(ctx) -> None:
     """
     vp = ctx.video_processor
     if vp is not None:
+        # This fragment reruns on a timer while the stream is live, so it doubles
+        # as the heartbeat that keeps this session's concurrency slot alive.
+        _heartbeat_stream(session_id)
         prediction, confidence, sentence = vp.snapshot()
         st.session_state.sentence = sentence
     else:
@@ -499,6 +519,12 @@ def main() -> None:
         # desired_playing_state is left None for allowed sessions so the built-in
         # START/STOP work normally, and forced False only when at capacity (the
         # safe direction -- forcing True was what previously broke start-up).
+        #
+        # NOTE: only class-based args are passed here. Adding a callback arg such
+        # as on_video_ended makes streamlit-webrtc wrap the processor in a
+        # CallbackAttachableProcessor, and ctx.video_processor then no longer
+        # returns our SignLanguageProcessor (so .snapshot() breaks). Slot release
+        # is handled by the heartbeat/expiry scheme instead.
         ctx = webrtc_streamer(
             key="sign-language",
             mode=WebRtcMode.SENDRECV,
@@ -512,11 +538,10 @@ def main() -> None:
             media_stream_constraints={"video": VIDEO_CONSTRAINTS, "audio": False},
             async_processing=True,
             desired_playing_state=None if allowed else False,
-            on_video_ended=lambda: _release_stream(session_id),
         )
 
-    # Safety net: if the stream is not playing (never started, or stopped without
-    # on_video_ended firing on an abrupt disconnect), make sure the slot is freed.
+    # Free the slot promptly on a clean stop (STOP triggers a rerun with
+    # playing=False). Abrupt disconnects are handled by heartbeat expiry.
     if not ctx.state.playing:
         _release_stream(session_id)
 
@@ -524,7 +549,7 @@ def main() -> None:
         # The live prediction/sentence are drawn by the timer fragment, which
         # creates its own elements (see render_output) so it can safely redraw
         # them on every tick without touching main-script containers.
-        render_output(ctx)
+        render_output(ctx, session_id)
         if st.button("🗑 Clear Text", use_container_width=True):
             st.session_state.sentence = ""
             if ctx.video_processor is not None:
