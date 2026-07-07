@@ -39,8 +39,7 @@ from utils.hand_tracking import HandTracker
 # --------------------------------------------------------------------------- #
 PAGE_TITLE = "Sign Language Translator"
 PAGE_DESCRIPTION = (
-    "Deploy This App at Front Desks of Hospitals, Schools, Banks, Government Offices, and Other Public Places to Help Deaf People Communicate. "
-    ", in Real time using your webcam."
+    "Deploy This App at Front Desks of Hospitals, Schools, Banks, Government Offices, and Other Public Places to Help Deaf People Communicate in Real time using your webcam."
 )
 DEFAULT_STABILITY_FRAMES = 12
 DEFAULT_CONFIDENCE_THRESHOLD = 0.35

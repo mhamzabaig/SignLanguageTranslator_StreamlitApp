@@ -3,9 +3,13 @@
 # across major library versions.
 streamlit>=1.37,<2
 streamlit-webrtc>=0.47,<0.63
-# Headless build: the app never opens a server-side window, and the full
-# opencv-python pulls GUI libs that are awkward to satisfy on cloud hosts.
-opencv-python-headless>=4.8,<5
+# MediaPipe depends on the NON-headless opencv-contrib-python, whose cv2 links
+# libGL.so.1 and libgthread-2.0.so.0 -- system libs that Streamlit Community
+# Cloud's current (broken) base image can't install (libglib2.0-0 is
+# uninstallable there). We install the HEADLESS build of the same contrib
+# package so the cv2 that ends up imported needs no system OpenGL/glib at all.
+# It must appear BEFORE mediapipe so it is the cv2 that wins on disk.
+opencv-contrib-python-headless>=4.8,<5
 mediapipe>=0.9,<0.11
 numpy>=1.24,<2
 scikit-learn==1.2.0
