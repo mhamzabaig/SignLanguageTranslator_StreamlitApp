@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional, Tuple
+import uuid
+from typing import Optional, Set, Tuple
 
 import av
 import cv2
@@ -89,6 +90,41 @@ RTC_CONFIGURATION = RTCConfiguration(
         ]
     }
 )
+
+
+# --------------------------------------------------------------------------- #
+# Concurrency control
+# --------------------------------------------------------------------------- #
+# Streamlit Community Cloud serves every visitor from ONE process on ~1 shared
+# CPU core, and each active stream runs a full MediaPipe pipeline per frame. Cap
+# how many streams may run at once so a handful of extra visitors can't saturate
+# the core and make everyone's feed stutter. The state is module-level -- shared
+# across all sessions in the process -- and guarded by a lock because streams
+# start (video_processor_factory) and end (on_video_ended) on different threads.
+# Lower this to 2 if playback still stutters on the free tier.
+MAX_CONCURRENT_STREAMS = 3
+_stream_lock = threading.Lock()
+_active_streams: Set[str] = set()  # session ids with a live stream
+
+
+def _register_stream(session_id: str) -> None:
+    """Mark this session's stream as active (called when a stream starts)."""
+    with _stream_lock:
+        _active_streams.add(session_id)
+
+
+def _release_stream(session_id: str) -> None:
+    """Free this session's slot (called when its stream ends). Idempotent."""
+    with _stream_lock:
+        _active_streams.discard(session_id)
+
+
+def _can_stream(session_id: str) -> bool:
+    """Whether this session may stream now: it already holds a slot, or one is
+    free. A session occupies at most one slot (the set is keyed by session id),
+    so a single browser tab can never take more than one."""
+    with _stream_lock:
+        return session_id in _active_streams or len(_active_streams) < MAX_CONCURRENT_STREAMS
 
 
 # --------------------------------------------------------------------------- #
@@ -306,6 +342,19 @@ class SignLanguageProcessor(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(annotated, format="bgr24")
 
 
+def _make_processor(
+    classifier: SignLanguageClassifier, session_id: str
+) -> "SignLanguageProcessor":
+    """Factory for the WebRTC video processor.
+
+    Called by streamlit-webrtc when a stream starts, so this is the natural place
+    to claim the session's concurrency slot. The matching release happens in the
+    stream's ``on_video_ended`` callback.
+    """
+    _register_stream(session_id)
+    return SignLanguageProcessor(classifier)
+
+
 # --------------------------------------------------------------------------- #
 # UI sections
 # --------------------------------------------------------------------------- #
@@ -413,22 +462,43 @@ def main() -> None:
         st.error(f"Failed to load the model: {error}")
         return
 
+    # A stable per-session id (per browser tab) used to hold at most one stream
+    # slot. Created once and kept in session_state across reruns.
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = uuid.uuid4().hex
+    session_id = st.session_state.session_id
+
     video_col, text_col = st.columns([2, 1])
 
     with video_col:
         st.subheader("Live Webcam")
 
+        # Only let this visitor start a stream if the server is below the cap (or
+        # this session is already streaming). At capacity, show a wait notice and
+        # force the stream stopped so pressing START can't spin up an over-limit
+        # pipeline; a Retry button reruns to re-check as slots free up.
+        allowed = _can_stream(session_id)
+        if not allowed:
+            st.warning(
+                f"🚦 The server is busy — the maximum of {MAX_CONCURRENT_STREAMS} "
+                "simultaneous users has been reached. Please wait a moment and "
+                "press **Retry**."
+            )
+            st.button("🔄 Retry")  # a click just triggers a rerun (re-checks capacity)
+
         # SENDRECV: the browser sends its camera track and receives the annotated
         # track back. async_processing keeps frame handling off the event loop so
-        # the stream stays smooth. The factory injects the shared classifier.
+        # the stream stays smooth.
         #
         # The component renders its own START / STOP buttons. STOP fully closes
         # the peer connection and destroys the video worker, so no frames are
-        # sent or processed and server load drops to idle -- and nothing connects
-        # until START is pressed, so visitors just browsing cost the server
-        # nothing. (An earlier attempt to drive this from custom buttons via
-        # desired_playing_state stopped the feed from starting, so we rely on the
-        # built-in controls, which are reliable and do exactly what we need.)
+        # processed and server load drops to idle. A slot is taken in the factory
+        # (stream start) and freed in on_video_ended (stream stop / disconnect),
+        # both keyed by session_id so the count reflects only live streams.
+        #
+        # desired_playing_state is left None for allowed sessions so the built-in
+        # START/STOP work normally, and forced False only when at capacity (the
+        # safe direction -- forcing True was what previously broke start-up).
         ctx = webrtc_streamer(
             key="sign-language",
             mode=WebRtcMode.SENDRECV,
@@ -438,10 +508,17 @@ def main() -> None:
             # NAT. (Replaces the deprecated single rtc_configuration argument.)
             server_rtc_configuration=RTC_CONFIGURATION,
             frontend_rtc_configuration=RTC_CONFIGURATION,
-            video_processor_factory=lambda: SignLanguageProcessor(classifier),
+            video_processor_factory=lambda: _make_processor(classifier, session_id),
             media_stream_constraints={"video": VIDEO_CONSTRAINTS, "audio": False},
             async_processing=True,
+            desired_playing_state=None if allowed else False,
+            on_video_ended=lambda: _release_stream(session_id),
         )
+
+    # Safety net: if the stream is not playing (never started, or stopped without
+    # on_video_ended firing on an abrupt disconnect), make sure the slot is freed.
+    if not ctx.state.playing:
+        _release_stream(session_id)
 
     with text_col:
         # The live prediction/sentence are drawn by the timer fragment, which
