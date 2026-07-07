@@ -15,3 +15,7 @@ numpy>=1.24,<2
 scikit-learn==1.2.0
 # Pulled in by streamlit-webrtc; pinned explicitly since it is imported directly.
 av>=10,<13
+# tornado is a transitive dep of both streamlit and streamlit-webrtc, but the
+# Streamlit Cloud image has resolved environments without it -- streamlit-webrtc
+# imports it at module load, so declare it explicitly to guarantee it is present.
+tornado>=6.1
