@@ -432,7 +432,12 @@ def main() -> None:
         ctx = webrtc_streamer(
             key="sign-language",
             mode=WebRtcMode.SENDRECV,
-            rtc_configuration=RTC_CONFIGURATION,
+            # Apply the ICE (STUN + TURN) config to BOTH ends: the browser needs
+            # it to gather relay candidates and the server (aiortc) needs it to
+            # do the same, which is what actually lets the media connect through
+            # NAT. (Replaces the deprecated single rtc_configuration argument.)
+            server_rtc_configuration=RTC_CONFIGURATION,
+            frontend_rtc_configuration=RTC_CONFIGURATION,
             video_processor_factory=lambda: SignLanguageProcessor(classifier),
             media_stream_constraints={"video": VIDEO_CONSTRAINTS, "audio": False},
             async_processing=True,

@@ -10,7 +10,15 @@ streamlit-webrtc>=0.47,<0.63
 # package so the cv2 that ends up imported needs no system OpenGL/glib at all.
 # It must appear BEFORE mediapipe so it is the cv2 that wins on disk.
 opencv-contrib-python-headless>=4.8,<5
-mediapipe>=0.9,<0.11
+# Pinned exactly: on Streamlit Cloud a loose range let pip resolve a mediapipe
+# 0.10.x against a protobuf that its C++ bindings reject, so `mp.solutions`
+# failed to import and raised "module 'mediapipe' has no attribute 'solutions'".
+# 0.10.14 pairs with protobuf 4.25.x (pinned below), which Streamlit 1.50 also
+# accepts, giving one consistent set on both local and Cloud.
+mediapipe==0.10.14
+# Must satisfy BOTH mediapipe 0.10.14 (needs 4.25.3+) and streamlit (<7); this
+# range is the overlap and prevents the broken protobuf that killed mp.solutions.
+protobuf>=4.25.3,<5
 numpy>=1.24,<2
 scikit-learn==1.2.0
 # Pulled in by streamlit-webrtc; pinned explicitly since it is imported directly.
