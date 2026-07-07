@@ -65,11 +65,29 @@ VIDEO_CONSTRAINTS = {
 # we also clamp on the server before doing any work.
 PROCESS_MAX_WIDTH = 640
 
-# A public STUN server lets the browser and server negotiate a peer-to-peer
-# connection across NATs/firewalls, which is what makes the stream work for a
-# remote visitor (including on mobile networks) rather than only on localhost.
+# ICE servers for NAT traversal. A STUN server alone only works when a direct
+# peer-to-peer path exists; through Streamlit Community Cloud's network that path
+# is usually blocked, so the browser gathers candidates, START "works", but the
+# connection never completes and no video is ever returned. A TURN server relays
+# the media as a fallback and is what actually makes the stream work when
+# deployed. These are free public relays (Open Relay by Metered) -- fine for a
+# demo; for production, provision your own TURN (e.g. Twilio, coturn) since public
+# ones are rate-limited and can be flaky.
 RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {
+                "urls": [
+                    "turn:openrelay.metered.ca:80",
+                    "turn:openrelay.metered.ca:443",
+                    "turn:openrelay.metered.ca:443?transport=tcp",
+                ],
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            },
+        ]
+    }
 )
 
 
