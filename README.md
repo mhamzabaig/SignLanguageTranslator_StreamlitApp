@@ -139,8 +139,9 @@ The repo already includes everything the deploy needs:
 
 - **`requirements.txt`** — `streamlit-webrtc` + `av` for browser video, and
   `opencv-python-headless` (the GUI-free OpenCV build required on servers).
-- **`packages.txt`** — the system library (`libgl1`) MediaPipe needs on Streamlit
-  Cloud's Debian image.
+- **`packages.txt`** — the system libraries (`libgl1`, `libglib2.0-0`) MediaPipe's
+  OpenCV needs on Streamlit Cloud's Debian image (they provide `libGL.so.1` and
+  `libgthread-2.0.so.0`).
 
 > **⚠️ Python version matters — use 3.11.** `scikit-learn` is pinned to `1.2.0`
 > to match the model pickle, and 1.2.0 only publishes wheels up to Python 3.11.
