@@ -9,10 +9,16 @@ pre-trained **scikit-learn** classifier.
 ## 📋 Project Overview
 
 This application performs **real-time sign language alphabet recognition**. It
-captures frames from your webcam, detects a hand with MediaPipe, extracts a
-normalized landmark feature vector, and classifies the gesture (A–Z) with a
-pre-trained Random Forest model. Stabilized predictions are appended to a
-sentence, and spaces are inserted automatically when you pause between words.
+captures frames from your webcam **in the browser** via
+[`streamlit-webrtc`](https://github.com/whitphd/streamlit-webrtc), detects a hand
+with MediaPipe, extracts a normalized landmark feature vector, and classifies the
+gesture (A–Z) with a pre-trained Random Forest model. Stabilized predictions are
+appended to a sentence, and spaces are inserted automatically when you pause
+between words.
+
+> Because the camera is read from the **visitor's browser** (not the server),
+> the app works both locally and when deployed to the internet, on desktop and
+> mobile.
 
 > The model is **not** retrained by this app — it reuses the existing
 > `model/classifier.pkl` (originally `model.p`).
@@ -72,11 +78,11 @@ streamlit run app.py
 
 The app opens in your browser (default `http://localhost:8501`).
 
-1. Press **Start Translation**.
+1. Press **START** on the video panel.
 2. Allow webcam permission when prompted.
 3. Show one alphabet clearly with your hand and hold it steady.
 4. Pause (or remove your hand) for ~2 seconds to insert a space.
-5. Press **Stop Translation** to release the webcam.
+5. Press **STOP** on the video panel to end the session.
 
 ---
 
@@ -112,7 +118,8 @@ Sign_Language_Detector_Streamlit_app/
 │      feature_extraction.py    # Landmark → feature vector
 │
 ├── assets/                     # Screenshots / demo media
-├── requirements.txt
+├── requirements.txt            # Python deps (streamlit-webrtc, av, ...)
+├── packages.txt                # System libs for Streamlit Cloud (apt)
 ├── README.md
 └── .gitignore
 ```
@@ -127,13 +134,18 @@ Sign_Language_Detector_Streamlit_app/
 2. Go to [share.streamlit.io](https://share.streamlit.io) and connect the repo.
 3. Set **`app.py`** as the entry point and deploy.
 
-> **Webcam note:** This app uses OpenCV (`cv2.VideoCapture`) to access a webcam
-> attached to the machine **running** the app, which is ideal for local demos.
-> On a remote host (e.g. Streamlit Cloud) there is no server-side camera. To
-> capture the **user's browser** camera in a hosted deployment, integrate
-> [`streamlit-webrtc`](https://github.com/whitphd/streamlit-webrtc), which
-> streams frames from the browser to the same processing pipeline in
-> `process_frame`.
+The repo already includes everything the deploy needs:
+
+- **`requirements.txt`** — `streamlit-webrtc` + `av` for browser video, and
+  `opencv-python-headless` (the GUI-free OpenCV build required on servers).
+- **`packages.txt`** — the system libraries (`libgl1`, `libglib2.0-0`) MediaPipe
+  needs on Streamlit Cloud's Debian image.
+
+> **Webcam note:** The camera is captured from the **visitor's browser** over
+> WebRTC, so it works on a remote host with no server-side camera. A public
+> Google STUN server is configured for NAT traversal. On very restrictive
+> networks a peer connection can fail; adding a TURN server to
+> `RTC_CONFIGURATION` in `app.py` resolves that.
 
 ### Docker (optional)
 

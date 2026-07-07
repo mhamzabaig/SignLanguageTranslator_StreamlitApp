@@ -19,6 +19,7 @@ class HandTracker:
         self,
         static_image_mode: bool = False,
         max_num_hands: int = 1,
+        model_complexity: int = 0,
         min_detection_confidence: float = 0.3,
         min_tracking_confidence: float = 0.3,
     ) -> None:
@@ -29,6 +30,9 @@ class HandTracker:
                 (slower). ``False`` enables tracking across frames for smoother,
                 faster real-time performance. Feature values are unaffected.
             max_num_hands: Maximum number of hands to detect (kept at 1).
+            model_complexity: Landmark model complexity, ``0`` or ``1``. ``0`` is
+                roughly 2x faster per frame (~30 ms vs ~65 ms) at a small cost in
+                landmark precision on difficult poses -- a good real-time default.
             min_detection_confidence: Minimum confidence for initial detection.
             min_tracking_confidence: Minimum confidence for landmark tracking.
         """
@@ -39,6 +43,7 @@ class HandTracker:
         self._hands = self._mp_hands.Hands(
             static_image_mode=static_image_mode,
             max_num_hands=max_num_hands,
+            model_complexity=model_complexity,
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
