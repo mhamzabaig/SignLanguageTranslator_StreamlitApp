@@ -348,7 +348,7 @@ def render_sidebar() -> Tuple[int, float, float]:
 
 
 @st.fragment(run_every=0.15)
-def render_output(ctx, prediction_placeholder, sentence_placeholder) -> None:
+def render_output(ctx) -> None:
     """Poll the processor for the latest prediction/sentence and render them.
 
     ``run_every`` re-executes *only this fragment* on a timer, so the live text
@@ -356,6 +356,12 @@ def render_output(ctx, prediction_placeholder, sentence_placeholder) -> None:
     While the stream is active the sentence is mirrored into ``st.session_state``
     so it survives on screen after the user stops the stream (the processor --
     and its state -- is destroyed on stop).
+
+    The prediction/sentence elements are created *inside* the fragment (rather
+    than writing into ``st.empty`` placeholders defined in the main script).
+    A timer fragment owns and redraws its own output region on each tick, and
+    recent Streamlit raises ``StreamlitAPIException`` if a fragment enqueues into
+    a container created during an earlier full-script run.
     """
     vp = ctx.video_processor
     if vp is not None:
@@ -365,12 +371,10 @@ def render_output(ctx, prediction_placeholder, sentence_placeholder) -> None:
         prediction, confidence = "-", 0.0
         sentence = st.session_state.get("sentence", "")
 
-    prediction_placeholder.markdown(
-        f"### `{prediction}`  \nConfidence: **{confidence:.0%}**"
-    )
-    sentence_placeholder.markdown(
-        f"> {sentence or '_Your translated text will appear here._'}"
-    )
+    st.subheader("Prediction")
+    st.markdown(f"### `{prediction}`  \nConfidence: **{confidence:.0%}**")
+    st.subheader("Translated Sentence")
+    st.markdown(f"> {sentence or '_Your translated text will appear here._'}")
 
 
 # --------------------------------------------------------------------------- #
@@ -417,10 +421,10 @@ def main() -> None:
         )
 
     with text_col:
-        st.subheader("Prediction")
-        prediction_placeholder = st.empty()
-        st.subheader("Translated Sentence")
-        sentence_placeholder = st.empty()
+        # The live prediction/sentence are drawn by the timer fragment, which
+        # creates its own elements (see render_output) so it can safely redraw
+        # them on every tick without touching main-script containers.
+        render_output(ctx)
         if st.button("🗑 Clear Text", use_container_width=True):
             st.session_state.sentence = ""
             if ctx.video_processor is not None:
@@ -432,8 +436,6 @@ def main() -> None:
         ctx.video_processor.update_settings(
             stability_frames, confidence_threshold, space_pause_seconds
         )
-
-    render_output(ctx, prediction_placeholder, sentence_placeholder)
 
 
 if __name__ == "__main__":
